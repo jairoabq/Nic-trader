@@ -1,6 +1,6 @@
 const EventEmitter = require('events');
 const fs = require('fs');
-
+/*
 class WriteData extends EventEmitter {
   execute() {
     console.log('write');
@@ -26,10 +26,18 @@ ENDDATE = ENDDATE.getTime();
 let interval = setInterval(() => console.log(STARTDATE, ENDDATE), 1000);
 setTimeout(() => clearInterval(interval), 13000);
 
-let content = 'pussy';
+*/
 
-fs.writeFile('newFile.txt', content, (err) => {
-  if(err){
-    console.error("Theres an error");
+options = { //set up the parameters of the GET request
+  method: 'GET',
+  url: 'https://api.kraken.com/0/public/OHLC',
+  qs: {
+    pair: 'xbtusd',
+    since: 'STARTDATE' },
+  headers: {
+     Host: 'api.kraken.com',
+     Accept: '*/*',
   }
-});
+};
+
+console.log(options.qs.since);
