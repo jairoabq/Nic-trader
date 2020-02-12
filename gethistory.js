@@ -1,12 +1,17 @@
 const fs = require('fs'); //require filereader
 const request = require('request'); //npm i request an http requester
 const eventEmitter = require('events');
+const OHLC = require('./OHLC/OHLC');
 
 let STARTDATE = new Date('Jan 1 2020 00:00');//set the start date
 STARTDATE = STARTDATE.getTime();//turn this date into the unix representation
-STARTDATE = STARTDATE * 1000000; //add 6 trailing zeros to fulfil server requirements
 
-MINDATE = STARTDATE + 6000 * 1000000
+const STARTDATEORIGINAL = STARTDATE;
+
+MINDATE = STARTDATE + 60000;
+MINDATE /= 1000;
+
+STARTDATE = STARTDATE * 1000000; //add 6 trailing zeros to fulfil server requirements
 
 let ENDDATE = new Date('Feb 1 2020 00:00'); //set the end date
 ENDDATE = ENDDATE.getTime(); //turn this date into the unix representation
@@ -17,68 +22,150 @@ options = { //set up the parameters of the GET request
   method: 'GET',
   url: 'https://api.kraken.com/0/public/Trades',
   qs: {
-    pair: 'xbtusd',
-    since: /*"\'" + */STARTDATE }, //+ "\'"},
+    pair: 'xbtusd', //Currency pair BTC USD
+    since: STARTDATE },
   headers: {
-     Host: 'api.kraken.com',
-     Accept: '*/*',
+     Host: 'api.kraken.com', //URL
+     Accept: '*/*', //accept any form of response
   }
 };
 
 console.log(options.qs.since);
 
-function requestData() {
-  if(options.qs.since / 1000000 < ENDDATE) {
-    //console.log(number);
+let leftoverTradeData = [];
+
+function writeDataToFile(filename, writeData){ //generic data writer async
+  return new Promise((resolve, reject) => {
+    try {
+      writeData = {
+        data: writeData //turn the data into an obj
+      };
+      writeData = JSON.stringify(writeData); //turn data passed in writeData into json object
+      filename = './json/' + filename + '.json';
+      console.log(filename);
+      fs.writeFile(filename, writeData); //write to the file
+    }
+    catch (error) {
+      console.error("Error writeDataToFile() line 45");
+    }
+  });
+}
+
+let filesCreated = 0; //store how many files have been made.
+
+let ohlcData = []; //what the OHLC data will eventually be stored in
+let splitIntoMins = [];
+
+function parseData(requestedData) { //parse the data coming from web
+  return new Promise((resolve, reject) => {
+    //if (error) throw new Error(error);
+    //try {
+      let singleMin = [];
+      let json = requestedData;
+
+      let filetime = MINDATE - 60;
+
+      for (let i = 0; i < json.length; i++) {
+        let date = json[i][2];
+
+        json[i].pop(); //get rid of the last meaningless bit to save memory
+
+        if(date < MINDATE && options.qs.since / 1000000000 > MINDATE){ //if the data is within the min and makes up a full min (i.e. not at the end of the json file where a min could be split up between two different API calls)
+          singleMin.push(json[i]);
+        }
+        else if(options.qs.since / 1000000000 < MINDATE) { //if the end of the json data finishes before the end of the min.
+          leftoverTradeData.push(json[i]);
+        }
+        else { //if the next min is within the last min of the file and has moved onto a new min;
+          MINDATE += 60;
+          splitIntoMins.push(singleMin);
+          singleMin = [];
+          singleMin.push(json[i]);
+        }
+      }
+      console.log("split length: " + splitIntoMins.length);
+
+      if(splitIntoMins.length > 800){
+        let minSet = splitIntoMins.slice(0,720); //get the first 720 elements of the array
+
+        for(let i = 0; i < minSet.length; i++) {
+          singleMin = minSet[i];//now that the mins are seperated, we can reverse it
+
+          let open; //reference error if not initiated outside the if statements
+          let close;
+          let high;
+          let low;
+
+          if(singleMin.length > 0) { //if there were trades that min
+            open = singleMin[0][0]; //set open
+            close = singleMin[singleMin.length - 1][0]; //set close
+            high = open;
+            low = open;
+            for(let j = 0; j < singleMin.length; j++){ //iterate thru min till max is found
+
+              if(singleMin[j][0] > high){
+                high = singleMin[j][0];
+              }
+
+              if(singleMin[j][0] < low){ //iterate thru min till minimum is found
+                low = singleMin[j][0];
+              }
+            }
+          }
+          else { //if there were not any trades during that min
+            open = ohlcData[i-1][3]; //make all the vars the same as the last datapoint's close
+            high = open;
+            close = open;
+            low = open;
+          }
+
+          let ohlc = new OHLC(open,high,low,close);
+          ohlcData.push(ohlc.toArray);
+        }
+
+        filename = STARTDATE + filesCreated * (720 * 60);
+
+        console.log('fileData length: ' + ohlcData.length);
+
+        writeDataToFile(filename, ohlcData).then(() => {
+            console.log("Wrote " + filename + ".json");
+            filesCreated += 1;
+            ohlcData = [];
+
+          }).catch(console.error("error 135"));
+
+        console.log("ohlcData length: " + ohlcData.length);
+    /*  }
+      catch (error){
+        console.error("Error 132");
+      }*/
+    }
+  });
+}
+
+function requestData(number) {
+  if(options.qs.since / 1000000 < ENDDATE && number < 120) {
+
     request(options, function (error, response, body) { //send the GET request
-      if (error) throw new Error(error);
+      //if (error) throw new Error(error);
 
       json = JSON.parse(body); //turn the json into a js object
       options.qs.since = json.result.last;
       json = json.result.XXBTZUSD //get rid of everything that isnt data
 
-      console.log("requested");
+      console.log("GET <- since: " + options.qs.since);
+      console.log("API CALLS: " + (number + 1));
 
-      for (let i = 0; i < json.length; i++) {
-        let date = new Date(json[i][2] * 1000); //get Date obj based off of json data
-        json[i][2] = date.toISOString(); //convert unix date to iso date in json
-        json[i].pop(); //get rid of the useless "" at the end of the array
-        //json[i].push(i);
-      }
+      json = leftoverTradeData.concat(json);
 
-
-      if(data.length == 0){
-        data = json;
-        //console.log(data);
-      }
-      else{
-        console.log(data.length);
-        data = data.concat(json);
-        console.log(data.length);
-      }
-
-      console.log(options.qs.since);
-
-      let timeout = setTimeout(() => {
-        requestData();
-      },6000);
-    });
-  }
-  else{
-    data = {data: data};
-
-    //console.log(data);
-
-    data = JSON.stringify(data);
-
-    //console.log(data);
-
-    fs.writeFileSync('json/d' + options.qs.since + '.json', data, (err) => {
-      if(err){
-        console.error("theres an error");
-      }
+      let timeout = setTimeout(() => { //make a new call to the server for more data
+        number += 1;
+        requestData(number);
+      }, 6000);
+      parseData(json).then(() => {
+          console.log("Data Parsed");
+        }).catch(console.error("error"));
     });
   }
 }
-
-//requestData();
+requestData(0);
