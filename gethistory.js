@@ -1,8 +1,10 @@
+/* Node Modules */
 const fs = require('fs'); //require filereader
 const request = require('request'); //npm i request an http requester
 const eventEmitter = require('events');
 const OHLC = require('./OHLC/OHLC');
 
+/* set time */
 let STARTDATE = new Date('Feb 11 2020 21:00');//set the start date in UTC
 STARTDATE = STARTDATE.getTime();//turn this date into the unix representation
 let STARTDATEORIGINAL = STARTDATE;
@@ -12,11 +14,8 @@ let fileOutputDate = STARTDATE;
 MINDATE = STARTDATE + 60000;
 MINDATE /= 1000;
 
-//STARTDATE = STARTDATE * 1000000; //add 6 trailing zeros to fulfil server requirements
-
 let ENDDATE = new Date('Feb 13 2020 10:00'); //set the end date
 ENDDATE = ENDDATE.getTime(); //turn this date into the unix representation
-//ENDDATE -= 18000000;
 
 let data = []; //where all the final data will go
 
